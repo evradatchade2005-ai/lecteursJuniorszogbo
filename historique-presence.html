@@ -43,7 +43,7 @@
 
   <section class="panel">
     <h2 class="panel-title"><span class="mark"></span> Cotisation en attente ce mois-ci</h2>
-    <p class="panel-sub">Enfants ayant au moins une présence marquée « non payée » pour le mois en cours.</p>
+    <p class="panel-sub">Enfants ayant au moins une présence marquée « non payée » pour le mois en cours. Montant dû = nombre de samedis non payés × 50 FCFA.</p>
     <div id="owe-container"><div class="spinner-row">Chargement…</div></div>
   </section>
 
@@ -78,16 +78,29 @@
       container.innerHTML = `<p class="owe-empty">✓ Personne ne doit de cotisation en attente ce mois-ci.</p>`;
       return;
     }
-    container.innerHTML = `<div class="owe-panel" style="margin:0;border:none;background:none;padding:0;">
-      <div class="owe-list">
-        ${owed.map(o => `
-          <div class="owe-chip">
-            <span>${escapeHtml(o.enfant)}</span>
-            <span class="count">${o.count}</span>
-          </div>
-        `).join('')}
+    const totalDu = owed.reduce((s,o) => s + o.montant, 0);
+    container.innerHTML = `
+      <div class="total-banner" style="background:linear-gradient(135deg, var(--danger), #6e2626);">
+        <div>
+          <div class="label">Total dû ce mois-ci</div>
+          <div class="amount">${fmtMoney(totalDu)}</div>
+        </div>
+        <div>
+          <div class="label">Cotisation par samedi</div>
+          <div class="amount">${fmtMoney(COTISATION_SAMEDI)}</div>
+        </div>
       </div>
-    </div>`;
+      <div class="owe-panel" style="margin:0;border:none;background:none;padding:0;">
+        <div class="owe-list">
+          ${owed.map(o => `
+            <div class="owe-chip">
+              <span>${escapeHtml(o.enfant)}</span>
+              <span style="color:var(--danger); font-weight:700;">${fmtMoney(o.montant)}</span>
+              <span class="count" title="${o.count} samedi(s) non payé(s)">${o.count}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
   }
 
   function goEditPresenceDay(date){
