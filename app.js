@@ -18,6 +18,7 @@ const MOIS_LONG = ["janvier","février","mars","avril","mai","juin","juillet","a
 const JOURS_LONG = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 
 const BRAND = "Lecteurs Juniors SAP ZOGBO";
+const COTISATION_SAMEDI = 50; // montant (FCFA) de la cotisation attendue chaque samedi
 const WINE_RGB = [91, 26, 42];
 const GOLD_RGB = [176, 141, 87];
 const IVORY_RGB = [247, 242, 231];
@@ -187,8 +188,8 @@ function computeWhoOwesThisMonth(list){
     }
   });
   return Object.entries(owed)
-    .map(([enfant, info]) => ({ enfant, ...info }))
-    .sort((a,b) => b.count - a.count);
+    .map(([enfant, info]) => ({ enfant, ...info, montant: info.count * COTISATION_SAMEDI }))
+    .sort((a,b) => b.montant - a.montant);
 }
 
 /* ============================================================
