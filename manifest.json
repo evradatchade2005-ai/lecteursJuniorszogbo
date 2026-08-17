@@ -1,6 +1,6 @@
 {
   "name": "Lecteurs Juniors SAP ZOGBO",
-  "short_name": "Juniors ZOGBO",
+  "short_name": "Lecteurs Juniors ZOGBO",
   "description": "Classement des lecteurs et suivi des cotisations — Lecteurs Juniors SAP ZOGBO",
   "start_url": "./index.html",
   "scope": "./",
