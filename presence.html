@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Présence — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Présence du jour</h1>
+    <p class="subtitle">Listez les enfants présents à la réunion et cochez ceux qui ont payé la cotisation du jour.</p>
+    <nav class="pagenav">
+      <a href="index.html">Classement</a>
+      <a href="cotisation.html">Cotisation</a>
+      <a href="historique-classement.html">Historique classement</a>
+      <a href="historique-cotisation.html">Historique cotisation</a>
+      <a href="presence.html" class="active">Présence</a>
+      <a href="historique-presence.html">Historique présence</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel">
+    <div id="edit-banner-pres">✎ Modification de la présence de ce jour — l'enregistrement remplacera entièrement la liste existante pour cette date.</div>
+    <h2 class="panel-title"><span class="mark"></span> Liste de présence</h2>
+    <p class="panel-sub">Ajoutez un enfant à la fois, cochez « Payé » si la cotisation du jour a été réglée.</p>
+
+    <div class="field" style="max-width: 280px;">
+      <label for="p-date">Date de la réunion</label>
+      <input type="date" id="p-date">
+    </div>
+
+    <div class="child-rows" id="child-rows"></div>
+    <button class="add-row-btn" id="add-row-btn" type="button">+ Ajouter un enfant</button>
+
+    <div class="form-actions" style="margin-top:18px;">
+      <button class="btn-primary" id="save-pres-btn">Enregistrer la présence</button>
+      <button class="btn-ghost" id="cancel-pres-btn" style="display:none;">Annuler la modification</button>
+      <button class="btn-pdf" id="pdf-pres-btn">⬇ Télécharger en PDF</button>
+    </div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+  let editingDate = null; // date en cours d'édition (remplace toute la liste de ce jour)
+  let rowSeq = 0;
+
+  function addChildRow(name = '', paye = false){
+    rowSeq++;
+    const id = 'row-' + rowSeq;
+    const wrap = document.createElement('div');
+    wrap.className = 'child-row';
+    wrap.id = id;
+    wrap.innerHTML = `
+      <input type="text" placeholder="Nom de l'enfant" value="${escapeHtml(name)}">
+      <label class="paid-toggle ${paye ? 'paid' : ''}">
+        <input type="checkbox" ${paye ? 'checked' : ''}>
+        <span class="paid-label">${paye ? '✓ Payé' : 'Non payé'}</span>
+      </label>
+      <button type="button" class="remove-row" title="Retirer">×</button>
+    `;
+    const toggle = wrap.querySelector('.paid-toggle');
+    const checkbox = wrap.querySelector('input[type=checkbox]');
+    const paidLabel = wrap.querySelector('.paid-label');
+    toggle.addEventListener('click', (e) => {
+      if(e.target.tagName === 'INPUT') return;
+      checkbox.checked = !checkbox.checked;
+      toggle.classList.toggle('paid', checkbox.checked);
+      paidLabel.textContent = checkbox.checked ? '✓ Payé' : 'Non payé';
+    });
+    wrap.querySelector('.remove-row').addEventListener('click', () => wrap.remove());
+    document.getElementById('child-rows').appendChild(wrap);
+    return wrap;
+  }
+
+  function getChildRowsData(){
+    const rows = Array.from(document.querySelectorAll('.child-row'));
+    return rows.map(r => ({
+      enfant: r.querySelector('input[type=text]').value.trim(),
+      paye: r.querySelector('input[type=checkbox]').checked
+    })).filter(r => r.enfant);
+  }
+
+  function resetPresenceForm(){
+    document.getElementById('child-rows').innerHTML = '';
+    document.getElementById('p-date').value = todayISO();
+    editingDate = null;
+    document.getElementById('edit-banner-pres').style.display = 'none';
+    document.getElementById('cancel-pres-btn').style.display = 'none';
+    document.getElementById('save-pres-btn').textContent = 'Enregistrer la présence';
+    addChildRow();
+  }
+
+  document.getElementById('add-row-btn').addEventListener('click', () => addChildRow());
+
+  async function savePresence(){
+    if(!configOk){ showToast("Configurez d'abord la base de données (config.js)"); return; }
+    const date = document.getElementById('p-date').value;
+    if(!date){ showToast("Merci de choisir une date"); return; }
+    const children = getChildRowsData();
+    if(children.length === 0){ showToast("Ajoutez au moins un enfant"); return; }
+
+    const btn = document.getElementById('save-pres-btn');
+    btn.disabled = true;
+
+    // Remplace entièrement la liste existante pour cette date (gère à la fois
+    // l'ajout, la modification et le retrait d'enfants en une seule opération).
+    await deletePresenceDay(date);
+    const rows = children.map(c => ({ date, enfant: c.enfant, paye: c.paye }));
+    const ok = await insertPresenceRows(rows);
+
+    btn.disabled = false;
+    if(ok){
+      showToast("Présence enregistrée");
+      resetPresenceForm();
+    }
+  }
+
+  document.getElementById('save-pres-btn').addEventListener('click', savePresence);
+  document.getElementById('cancel-pres-btn').addEventListener('click', resetPresenceForm);
+
+  document.getElementById('pdf-pres-btn').addEventListener('click', () => {
+    const date = document.getElementById('p-date').value;
+    const children = getChildRowsData();
+    if(!date || children.length === 0){ showToast("Ajoutez la date et au moins un enfant"); return; }
+    generatePresencePdf(date, children);
+  });
+
+  function loadFromQuery(){
+    const params = new URLSearchParams(location.search);
+    const editDate = params.get('edit');
+    if(editDate){
+      const raw = sessionStorage.getItem('edit-presence');
+      if(raw){
+        const rows = JSON.parse(raw);
+        document.getElementById('child-rows').innerHTML = '';
+        document.getElementById('p-date').value = editDate;
+        rows.forEach(r => addChildRow(r.enfant, r.paye));
+        if(rows.length === 0) addChildRow();
+        editingDate = editDate;
+        document.getElementById('edit-banner-pres').style.display = 'flex';
+        document.getElementById('cancel-pres-btn').style.display = 'inline-block';
+        document.getElementById('save-pres-btn').textContent = 'Enregistrer les modifications';
+        sessionStorage.removeItem('edit-presence');
+        return;
+      }
+    }
+    resetPresenceForm();
+  }
+
+  initDb();
+  loadFromQuery();
+  setupPwa();
+</script>
+
+</body>
+</html>

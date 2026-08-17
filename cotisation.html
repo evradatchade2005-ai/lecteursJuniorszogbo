@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cotisation — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Cotisation du samedi</h1>
+    <p class="subtitle">Enregistrez le montant collecté et l'animateur qui a ramassé la cotisation.</p>
+    <nav class="pagenav">
+      <a href="index.html">Classement</a>
+      <a href="cotisation.html" class="active">Cotisation</a>
+      <a href="historique-classement.html">Historique classement</a>
+      <a href="historique-cotisation.html">Historique cotisation</a>
+      <a href="presence.html">Présence</a>
+      <a href="historique-presence.html">Historique présence</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel">
+    <div id="edit-banner-cot">✎ Modification d'une cotisation existante — les changements remplaceront l'entrée sélectionnée.</div>
+    <h2 class="panel-title"><span class="mark"></span> Nouvelle cotisation</h2>
+    <p class="panel-sub">Indiquez la date du samedi, l'animateur qui a ramassé la cotisation, et le montant collecté.</p>
+
+    <div class="two-col">
+      <div class="field">
+        <label for="c-date">Date (samedi)</label>
+        <input type="date" id="c-date">
+      </div>
+      <div class="field">
+        <label for="c-montant">Montant collecté (FCFA)</label>
+        <input type="number" id="c-montant" placeholder="0" min="0" step="1">
+      </div>
+    </div>
+    <div class="field">
+      <label for="c-animateur">Animateur ayant ramassé la cotisation</label>
+      <input type="text" id="c-animateur" placeholder="Nom et prénom">
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-primary" id="save-cot-btn">Enregistrer la cotisation</button>
+      <button class="btn-ghost" id="cancel-cot-btn" style="display:none;">Annuler la modification</button>
+    </div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  let editingCotId = null;
+
+  function resetCotForm(){
+    document.getElementById('c-date').value = nextSaturdayOrSundayISO(6);
+    document.getElementById('c-montant').value = '';
+    document.getElementById('c-animateur').value = '';
+    editingCotId = null;
+    document.getElementById('edit-banner-cot').style.display = 'none';
+    document.getElementById('cancel-cot-btn').style.display = 'none';
+    document.getElementById('save-cot-btn').textContent = 'Enregistrer la cotisation';
+  }
+
+  async function saveCotisation(){
+    if(!configOk){ showToast("Configurez d'abord la base de données (config.js)"); return; }
+    const date = document.getElementById('c-date').value;
+    const animateur = document.getElementById('c-animateur').value.trim();
+    const montant = parseFloat(document.getElementById('c-montant').value) || 0;
+    if(!date){ showToast("Merci de choisir une date"); return; }
+    if(!animateur){ showToast("Merci d'indiquer l'animateur"); document.getElementById('c-animateur').focus(); return; }
+
+    const entry = { date, animateur, montant };
+    const btn = document.getElementById('save-cot-btn');
+    btn.disabled = true;
+    let ok;
+    if(editingCotId){
+      ok = await updateCotisation(editingCotId, entry);
+      if(ok) showToast("Cotisation modifiée");
+    }else{
+      ok = await insertCotisation(entry);
+      if(ok) showToast("Cotisation enregistrée");
+    }
+    btn.disabled = false;
+    if(ok) resetCotForm();
+  }
+
+  document.getElementById('save-cot-btn').addEventListener('click', saveCotisation);
+  document.getElementById('cancel-cot-btn').addEventListener('click', resetCotForm);
+
+  function loadFromQuery(){
+    const params = new URLSearchParams(location.search);
+    const editCotisationId = params.get('editCot');
+    if(editCotisationId){
+      const raw = sessionStorage.getItem('edit-cotisation');
+      if(raw){
+        const entry = JSON.parse(raw);
+        document.getElementById('c-date').value = entry.date;
+        document.getElementById('c-animateur').value = entry.animateur || '';
+        document.getElementById('c-montant').value = entry.montant || '';
+        editingCotId = editCotisationId;
+        document.getElementById('edit-banner-cot').style.display = 'flex';
+        document.getElementById('cancel-cot-btn').style.display = 'inline-block';
+        document.getElementById('save-cot-btn').textContent = 'Enregistrer les modifications';
+        sessionStorage.removeItem('edit-cotisation');
+      }
+    } else {
+      resetCotForm();
+    }
+  }
+
+  initDb();
+  loadFromQuery();
+  setupPwa();
+</script>
+
+</body>
+</html>

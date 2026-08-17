@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Classement — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="description" content="Classement des lecteurs et prières universelles — Lecteurs Juniors SAP ZOGBO">
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Lecteurs Juniors SAP ZOGBO</h1>
+    <p class="subtitle">Composez le classement des lectures, des prières universelles et de la monition pour chaque messe.</p>
+    <nav class="pagenav">
+      <a href="index.html" class="active">Classement</a>
+      <a href="cotisation.html">Cotisation</a>
+      <a href="historique-classement.html">Historique classement</a>
+      <a href="historique-cotisation.html">Historique cotisation</a>
+      <a href="presence.html">Présence</a>
+      <a href="historique-presence.html">Historique présence</a>
+    </nav>
+    <button id="install-btn">⬇ Installer l'application sur ce téléphone</button>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel" id="form-panel">
+    <div id="edit-banner">✎ Modification d'un classement existant — les changements remplaceront l'entrée sélectionnée.</div>
+    <h2 class="panel-title"><span class="mark"></span> Nouveau classement</h2>
+    <p class="panel-sub">Renseignez la date de la messe et les noms pour chaque rôle.</p>
+
+    <div class="field">
+      <label for="f-date">Date de la messe</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="roles-grid">
+      <div class="field">
+        <label class="role-tag"><span class="role-num">1</span> Première lecture</label>
+        <input type="text" id="f-r1" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">2</span> Deuxième lecture</label>
+        <input type="text" id="f-r2" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">1</span> Prière universelle 1</label>
+        <input type="text" id="f-pu1" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">2</span> Prière universelle 2</label>
+        <input type="text" id="f-pu2" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">3</span> Prière universelle 3</label>
+        <input type="text" id="f-pu3" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">4</span> Prière universelle 4</label>
+        <input type="text" id="f-pu4" placeholder="Nom et prénom">
+      </div>
+      <div class="field">
+        <label class="role-tag"><span class="role-num">•</span> Monition</label>
+        <input type="text" id="f-monition" placeholder="Nom et prénom">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-primary" id="save-btn">Enregistrer le classement</button>
+      <button class="btn-ghost" id="cancel-btn" style="display:none;">Annuler la modification</button>
+    </div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  let editingId = null;
+
+  function resetForm(){
+    document.getElementById('f-date').value = nextSaturdayOrSundayISO(0);
+    ROLE_FIELDS.forEach(r => document.getElementById(r.input).value = '');
+    editingId = null;
+    document.getElementById('edit-banner').style.display = 'none';
+    document.getElementById('cancel-btn').style.display = 'none';
+    document.getElementById('save-btn').textContent = 'Enregistrer le classement';
+  }
+
+  async function saveEntry(){
+    if(!configOk){ showToast("Configurez d'abord la base de données (config.js)"); return; }
+    const date = document.getElementById('f-date').value;
+    if(!date){ showToast("Merci de choisir une date de messe"); document.getElementById('f-date').focus(); return; }
+
+    const entry = { date };
+    ROLE_FIELDS.forEach(r => entry[r.id] = document.getElementById(r.input).value.trim());
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    let ok;
+    if(editingId){
+      ok = await updateClassement(editingId, entry);
+      if(ok) showToast("Classement modifié");
+    }else{
+      ok = await insertClassement(entry);
+      if(ok) showToast("Classement enregistré");
+    }
+    btn.disabled = false;
+    if(ok) resetForm();
+  }
+
+  document.getElementById('save-btn').addEventListener('click', saveEntry);
+  document.getElementById('cancel-btn').addEventListener('click', resetForm);
+
+  function loadFromQuery(){
+    const params = new URLSearchParams(location.search);
+    const editClassementId = params.get('edit');
+    if(editClassementId){
+      const raw = sessionStorage.getItem('edit-classement');
+      if(raw){
+        const entry = JSON.parse(raw);
+        document.getElementById('f-date').value = entry.date;
+        ROLE_FIELDS.forEach(r => document.getElementById(r.input).value = entry[r.id] || '');
+        editingId = editClassementId;
+        document.getElementById('edit-banner').style.display = 'flex';
+        document.getElementById('cancel-btn').style.display = 'inline-block';
+        document.getElementById('save-btn').textContent = 'Enregistrer les modifications';
+        sessionStorage.removeItem('edit-classement');
+      }
+    } else {
+      resetForm();
+    }
+  }
+
+  initDb();
+  loadFromQuery();
+  setupPwa();
+</script>
+
+</body>
+</html>

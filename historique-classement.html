@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Historique classement — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Historique des classements</h1>
+    <p class="subtitle">Tous les classements enregistrés, du plus récent au plus ancien.</p>
+    <nav class="pagenav">
+      <a href="index.html">Classement</a>
+      <a href="cotisation.html">Cotisation</a>
+      <a href="historique-classement.html" class="active">Historique classement</a>
+      <a href="historique-cotisation.html">Historique cotisation</a>
+      <a href="presence.html">Présence</a>
+      <a href="historique-presence.html">Historique présence</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel">
+    <div class="history-head">
+      <h2 class="panel-title" style="margin:0;"><span class="mark"></span> Classements</h2>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-classement" placeholder="Rechercher un nom ou une date…">
+      </div>
+    </div>
+    <div class="form-actions" style="margin-bottom:18px;">
+      <button class="btn-pdf btn-small" id="pdf-btn">⬇ Télécharger en PDF</button>
+    </div>
+    <div id="classements-list"><div class="spinner-row">Chargement…</div></div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+  let allClassements = [];
+
+  function goEditClassement(id){
+    const entry = allClassements.find(s => s.id === id);
+    if(!entry) return;
+    sessionStorage.setItem('edit-classement', JSON.stringify(entry));
+    location.href = 'index.html?edit=' + id;
+  }
+
+  async function goDeleteClassement(id){
+    if(!confirm("Supprimer ce classement de l'historique ?")) return;
+    const ok = await deleteClassement(id);
+    if(ok){ showToast("Classement supprimé"); await loadClassements(); }
+  }
+
+  function currentFilteredList(){
+    const query = document.getElementById('search-classement').value.trim().toLowerCase();
+    if(!query) return allClassements;
+    return allClassements.filter(s => {
+      const hay = [s.date, ...ROLE_FIELDS.map(r => s[r.id] || '')].join(' ').toLowerCase();
+      return hay.includes(query);
+    });
+  }
+
+  function renderClassements(){
+    const container = document.getElementById('classements-list');
+    const list = currentFilteredList();
+    if(list.length === 0){
+      container.innerHTML = `<div class="empty-state">
+        <div class="glyph">✚</div>
+        <p><strong>${allClassements.length ? "Aucun résultat" : "Aucun classement enregistré"}</strong></p>
+        <p>${allClassements.length ? "Essayez un autre nom ou une autre date." : "Enregistrez votre premier classement depuis la page Classement."}</p>
+      </div>`;
+      return;
+    }
+    container.innerHTML = list.map(s => {
+      const d = parseDateLocal(s.date);
+      const rolesHtml = ROLE_FIELDS.map(r => {
+        const val = s[r.id];
+        return `<div class="role-row ${val ? '' : 'empty'}">
+                  <span class="rlabel">${r.label}</span>
+                  <span class="rname">${val ? escapeHtml(val) : '—'}</span>
+                </div>`;
+      }).join('');
+      return `
+        <div class="service-card">
+          <div class="ribbon">
+            <div class="day">${String(d.getDate()).padStart(2,'0')}</div>
+            <div class="month">${MOIS[d.getMonth()]}</div>
+            <div class="year">${d.getFullYear()}</div>
+          </div>
+          <div class="service-body">
+            <div class="service-date-full">${fullDateLabel(s.date)}</div>
+            <div class="roles-list">${rolesHtml}</div>
+            <div class="service-actions">
+              <button class="btn-ghost btn-small" onclick="goEditClassement('${s.id}')">Modifier</button>
+              <button class="btn-danger-ghost btn-small" onclick="goDeleteClassement('${s.id}')">Supprimer</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadClassements(){
+    allClassements = await fetchClassements();
+    renderClassements();
+  }
+
+  document.getElementById('search-classement').addEventListener('input', renderClassements);
+  document.getElementById('pdf-btn').addEventListener('click', () => {
+    const list = currentFilteredList();
+    if(list.length === 0){ showToast("Aucun classement à exporter"); return; }
+    generateClassementsPdf(list);
+  });
+
+  (async function init(){
+    const ok = initDb();
+    if(!ok){
+      document.getElementById('classements-list').innerHTML =
+        `<div class="empty-state"><p>Configurez la base de données pour afficher l'historique.</p></div>`;
+      return;
+    }
+    await loadClassements();
+  })();
+</script>
+
+</body>
+</html>

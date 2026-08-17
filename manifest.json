@@ -1,0 +1,25 @@
+{
+  "name": "Lecteurs Juniors SAP ZOGBO",
+  "short_name": "Juniors ZOGBO",
+  "description": "Classement des lecteurs et suivi des cotisations — Lecteurs Juniors SAP ZOGBO",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EFE8D8",
+  "theme_color": "#5B1A2A",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "SAINTANTOINE.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "SAINTANTOINE.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

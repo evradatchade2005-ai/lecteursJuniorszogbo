@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Historique présence — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Historique des présences</h1>
+    <p class="subtitle">Toutes les réunions enregistrées, et qui doit encore la cotisation ce mois-ci.</p>
+    <nav class="pagenav">
+      <a href="index.html">Classement</a>
+      <a href="cotisation.html">Cotisation</a>
+      <a href="historique-classement.html">Historique classement</a>
+      <a href="historique-cotisation.html">Historique cotisation</a>
+      <a href="presence.html">Présence</a>
+      <a href="historique-presence.html" class="active">Historique présence</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel">
+    <h2 class="panel-title"><span class="mark"></span> Cotisation en attente ce mois-ci</h2>
+    <p class="panel-sub">Enfants ayant au moins une présence marquée « non payée » pour le mois en cours.</p>
+    <div id="owe-container"><div class="spinner-row">Chargement…</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="history-head">
+      <h2 class="panel-title" style="margin:0;"><span class="mark"></span> Réunions enregistrées</h2>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-presence" placeholder="Rechercher un enfant ou une date…">
+      </div>
+    </div>
+    <div id="presence-list"><div class="spinner-row">Chargement…</div></div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+  let allPresences = [];
+
+  function renderOwe(){
+    const container = document.getElementById('owe-container');
+    const owed = computeWhoOwesThisMonth(allPresences);
+    if(owed.length === 0){
+      container.innerHTML = `<p class="owe-empty">✓ Personne ne doit de cotisation en attente ce mois-ci.</p>`;
+      return;
+    }
+    container.innerHTML = `<div class="owe-panel" style="margin:0;border:none;background:none;padding:0;">
+      <div class="owe-list">
+        ${owed.map(o => `
+          <div class="owe-chip">
+            <span>${escapeHtml(o.enfant)}</span>
+            <span class="count">${o.count}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+
+  function goEditPresenceDay(date){
+    const rows = allPresences.filter(p => p.date === date).map(p => ({ enfant: p.enfant, paye: p.paye }));
+    sessionStorage.setItem('edit-presence', JSON.stringify(rows));
+    location.href = 'presence.html?edit=' + date;
+  }
+
+  async function goDeletePresenceDay(date){
+    if(!confirm(`Supprimer toute la liste de présence du ${shortDateLabel(date)} ?`)) return;
+    const ok = await deletePresenceDay(date);
+    if(ok){ showToast("Réunion supprimée"); await loadPresences(); }
+  }
+
+  async function goDeletePresenceRow(id){
+    if(!confirm("Retirer cet enfant de la liste ?")) return;
+    const ok = await deletePresenceRow(id);
+    if(ok){ showToast("Enfant retiré"); await loadPresences(); }
+  }
+
+  function renderPresenceList(){
+    const container = document.getElementById('presence-list');
+    const query = document.getElementById('search-presence').value.trim().toLowerCase();
+    let list = allPresences;
+    if(query){
+      list = list.filter(p => (p.date + ' ' + p.enfant).toLowerCase().includes(query));
+    }
+    if(list.length === 0){
+      container.innerHTML = `<div class="empty-state">
+        <div class="glyph">✚</div>
+        <p><strong>${allPresences.length ? "Aucun résultat" : "Aucune présence enregistrée"}</strong></p>
+        <p>${allPresences.length ? "Essayez un autre nom ou une autre date." : "Enregistrez la première liste depuis la page Présence."}</p>
+      </div>`;
+      return;
+    }
+    const groups = groupPresencesByDate(list);
+    const dates = Object.keys(groups).sort().reverse();
+    container.innerHTML = dates.map(date => {
+      const children = groups[date];
+      const present = children.length;
+      const paid = children.filter(c => c.paye).length;
+      const childrenHtml = children.map(c => `
+        <div class="child-line">
+          <span class="cl-name">${escapeHtml(c.enfant)}</span>
+          <span class="cl-actions">
+            <span class="badge ${c.paye ? 'badge-paid' : 'badge-unpaid'}">${c.paye ? 'Payé' : 'Non payé'}</span>
+            <button class="icon-btn" title="Retirer cet enfant" onclick="goDeletePresenceRow('${c.id}')">✕</button>
+          </span>
+        </div>
+      `).join('');
+      return `
+        <div class="day-group">
+          <div class="day-group-head">
+            <div class="dg-date">${fullDateLabel(date)}</div>
+            <div class="dg-stats">${present} présent(s) · ${paid} payé(s) · ${present - paid} en attente</div>
+          </div>
+          <div class="day-group-body">
+            ${childrenHtml}
+            <div class="service-actions" style="margin-top:12px;">
+              <button class="btn-ghost btn-small" onclick="goEditPresenceDay('${date}')">Modifier</button>
+              <button class="btn-danger-ghost btn-small" onclick="goDeletePresenceDay('${date}')">Supprimer toute la liste</button>
+              <button class="btn-pdf btn-small" onclick="downloadDayPdf('${date}')">⬇ PDF</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function downloadDayPdf(date){
+    const children = allPresences.filter(p => p.date === date).map(c => ({ enfant: c.enfant, paye: c.paye }));
+    if(children.length === 0){ showToast("Aucune donnée pour ce jour"); return; }
+    generatePresencePdf(date, children);
+  }
+
+  async function loadPresences(){
+    allPresences = await fetchPresences();
+    renderOwe();
+    renderPresenceList();
+  }
+
+  document.getElementById('search-presence').addEventListener('input', renderPresenceList);
+
+  (async function init(){
+    const ok = initDb();
+    if(!ok){
+      document.getElementById('presence-list').innerHTML =
+        `<div class="empty-state"><p>Configurez la base de données pour afficher l'historique.</p></div>`;
+      document.getElementById('owe-container').innerHTML = '';
+      return;
+    }
+    await loadPresences();
+  })();
+</script>
+
+</body>
+</html>

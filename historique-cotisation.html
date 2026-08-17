@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Historique cotisation — Lecteurs Juniors SAP ZOGBO</title>
+<meta name="theme-color" content="#5B1A2A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Juniors ZOGBO">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="header-inner">
+    <div class="eyebrow"><span class="dot"></span> Service liturgique</div>
+    <h1>Historique &amp; statistiques de cotisation</h1>
+    <p class="subtitle">Totaux par samedi, par mois, par année et par animateur.</p>
+    <nav class="pagenav">
+      <a href="index.html">Classement</a>
+      <a href="cotisation.html">Cotisation</a>
+      <a href="historique-classement.html">Historique classement</a>
+      <a href="historique-cotisation.html" class="active">Historique cotisation</a>
+      <a href="presence.html">Présence</a>
+      <a href="historique-presence.html">Historique présence</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="config-warning" style="display:none;">
+    ⚠️ Base de données non configurée. Ouvrez le fichier <code>config.js</code> et
+    renseignez votre <code>SUPABASE_URL</code> et <code>SUPABASE_ANON_KEY</code>.
+  </div>
+
+  <section class="panel">
+    <div class="history-head" style="margin-bottom:8px;">
+      <h2 class="panel-title" style="margin:0;"><span class="mark"></span> Statistiques</h2>
+      <button class="btn-pdf btn-small" id="pdf-report-btn">⬇ Télécharger le rapport PDF</button>
+    </div>
+    <p class="panel-sub">Totaux calculés sur l'ensemble des cotisations enregistrées.</p>
+
+    <div class="total-banner">
+      <div>
+        <div class="label">Total général collecté</div>
+        <div class="amount" id="stat-total-general">—</div>
+      </div>
+      <div>
+        <div class="label">Cette année</div>
+        <div class="amount" id="stat-total-annee">—</div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>Par mois</h3>
+        <table class="stat-table" id="table-par-mois">
+          <thead><tr><th>Mois</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="stat-card">
+        <h3>Par année</h3>
+        <table class="stat-table" id="table-par-annee">
+          <thead><tr><th>Année</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="stat-card">
+        <h3>Par animateur (total collecté)</h3>
+        <table class="stat-table" id="table-par-animateur">
+          <thead><tr><th>Animateur</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="stat-card">
+        <h3>Par samedi</h3>
+        <table class="stat-table" id="table-par-samedi">
+          <thead><tr><th>Date</th><th style="text-align:right;">Total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="history-head">
+      <h2 class="panel-title" style="margin:0;"><span class="mark"></span> Détail des cotisations</h2>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="search-cotisation" placeholder="Rechercher un animateur ou une date…">
+      </div>
+    </div>
+    <div id="cotisations-list"><div class="spinner-row">Chargement…</div></div>
+  </section>
+
+  <footer>Lecteurs Juniors SAP ZOGBO</footer>
+</main>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+  let allCotisations = [];
+
+  function goEditCotisation(id){
+    const entry = allCotisations.find(s => s.id === id);
+    if(!entry) return;
+    sessionStorage.setItem('edit-cotisation', JSON.stringify(entry));
+    location.href = 'cotisation.html?editCot=' + id;
+  }
+
+  async function goDeleteCotisation(id){
+    if(!confirm("Supprimer cette cotisation de l'historique ?")) return;
+    const ok = await deleteCotisation(id);
+    if(ok){ showToast("Cotisation supprimée"); await loadCotisations(); }
+  }
+
+  function renderCotisations(){
+    const container = document.getElementById('cotisations-list');
+    const query = document.getElementById('search-cotisation').value.trim().toLowerCase();
+    let list = allCotisations;
+    if(query){
+      list = list.filter(s => (s.date + ' ' + (s.animateur||'')).toLowerCase().includes(query));
+    }
+    if(list.length === 0){
+      container.innerHTML = `<div class="empty-state">
+        <div class="glyph">✚</div>
+        <p><strong>${query ? "Aucun résultat" : "Aucune cotisation enregistrée"}</strong></p>
+        <p>${query ? "Essayez un autre nom ou une autre date." : "Enregistrez la première cotisation depuis la page Cotisation."}</p>
+      </div>`;
+      return;
+    }
+    container.innerHTML = list.map(s => {
+      const d = parseDateLocal(s.date);
+      return `
+        <div class="service-card">
+          <div class="ribbon">
+            <div class="day">${String(d.getDate()).padStart(2,'0')}</div>
+            <div class="month">${MOIS[d.getMonth()]}</div>
+            <div class="year">${d.getFullYear()}</div>
+          </div>
+          <div class="service-body">
+            <div class="service-date-full">${fullDateLabel(s.date)}</div>
+            <div class="cot-amount">${fmtMoney(s.montant)}</div>
+            <div class="cot-meta">Ramassé par <strong>${escapeHtml(s.animateur)}</strong></div>
+            <div class="service-actions">
+              <button class="btn-ghost btn-small" onclick="goEditCotisation('${s.id}')">Modifier</button>
+              <button class="btn-danger-ghost btn-small" onclick="goDeleteCotisation('${s.id}')">Supprimer</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderStats(){
+    const list = allCotisations;
+    const totalGeneral = list.reduce((sum, c) => sum + (Number(c.montant)||0), 0);
+    document.getElementById('stat-total-general').textContent = fmtMoney(totalGeneral);
+
+    const currentYear = new Date().getFullYear();
+    const totalAnnee = list.filter(c => parseDateLocal(c.date).getFullYear() === currentYear)
+                            .reduce((sum, c) => sum + (Number(c.montant)||0), 0);
+    document.getElementById('stat-total-annee').textContent = fmtMoney(totalAnnee);
+
+    const byMonth = {};
+    list.forEach(c => {
+      const d = parseDateLocal(c.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      byMonth[key] = (byMonth[key]||0) + (Number(c.montant)||0);
+    });
+    document.querySelector('#table-par-mois tbody').innerHTML =
+      Object.keys(byMonth).sort().reverse().map(key => {
+        const [y,m] = key.split('-').map(Number);
+        return `<tr><td>${MOIS_LONG[m-1]} ${y}</td><td class="num">${fmtMoney(byMonth[key])}</td></tr>`;
+      }).join('') || `<tr><td colspan="2" style="color:var(--ink-soft);">Aucune donnée</td></tr>`;
+
+    const byYear = {};
+    list.forEach(c => {
+      const y = parseDateLocal(c.date).getFullYear();
+      byYear[y] = (byYear[y]||0) + (Number(c.montant)||0);
+    });
+    document.querySelector('#table-par-annee tbody').innerHTML =
+      Object.keys(byYear).sort().reverse().map(y =>
+        `<tr><td>${y}</td><td class="num">${fmtMoney(byYear[y])}</td></tr>`
+      ).join('') || `<tr><td colspan="2" style="color:var(--ink-soft);">Aucune donnée</td></tr>`;
+
+    const byAnimateur = {};
+    list.forEach(c => {
+      const name = c.animateur || 'Non renseigné';
+      byAnimateur[name] = (byAnimateur[name]||0) + (Number(c.montant)||0);
+    });
+    document.querySelector('#table-par-animateur tbody').innerHTML =
+      Object.entries(byAnimateur).sort((a,b) => b[1]-a[1]).map(([name, total]) =>
+        `<tr><td>${escapeHtml(name)}</td><td class="num">${fmtMoney(total)}</td></tr>`
+      ).join('') || `<tr><td colspan="2" style="color:var(--ink-soft);">Aucune donnée</td></tr>`;
+
+    const bySamedi = {};
+    list.forEach(c => { bySamedi[c.date] = (bySamedi[c.date]||0) + (Number(c.montant)||0); });
+    document.querySelector('#table-par-samedi tbody').innerHTML =
+      Object.keys(bySamedi).sort().reverse().slice(0, 20).map(date => {
+        const d = parseDateLocal(date);
+        return `<tr><td>${String(d.getDate()).padStart(2,'0')} ${MOIS[d.getMonth()]} ${d.getFullYear()}</td><td class="num">${fmtMoney(bySamedi[date])}</td></tr>`;
+      }).join('') || `<tr><td colspan="2" style="color:var(--ink-soft);">Aucune donnée</td></tr>`;
+  }
+
+  async function loadCotisations(){
+    allCotisations = await fetchCotisations();
+    renderCotisations();
+    renderStats();
+  }
+
+  document.getElementById('search-cotisation').addEventListener('input', renderCotisations);
+  document.getElementById('pdf-report-btn').addEventListener('click', () => {
+    if(allCotisations.length === 0){ showToast("Aucune cotisation à exporter"); return; }
+    generateCotisationReportPdf(allCotisations);
+  });
+
+  (async function init(){
+    const ok = initDb();
+    if(!ok){
+      document.getElementById('cotisations-list').innerHTML =
+        `<div class="empty-state"><p>Configurez la base de données pour afficher l'historique.</p></div>`;
+      return;
+    }
+    await loadCotisations();
+  })();
+</script>
+
+</body>
+</html>
