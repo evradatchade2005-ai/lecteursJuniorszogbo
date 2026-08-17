@@ -92,9 +92,11 @@
     const toggle = wrap.querySelector('.paid-toggle');
     const checkbox = wrap.querySelector('input[type=checkbox]');
     const paidLabel = wrap.querySelector('.paid-label');
-    toggle.addEventListener('click', (e) => {
-      if(e.target.tagName === 'INPUT') return;
-      checkbox.checked = !checkbox.checked;
+    // La case est dans un <label> : cliquer dessus la fait déjà basculer
+    // nativement. On se contente d'écouter "change" pour mettre à jour
+    // l'apparence, sans jamais toucher nous-mêmes à checkbox.checked
+    // (sinon le clic bascule deux fois et s'annule).
+    checkbox.addEventListener('change', () => {
       toggle.classList.toggle('paid', checkbox.checked);
       paidLabel.textContent = checkbox.checked ? '✓ Payé' : 'Non payé';
     });
